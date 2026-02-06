@@ -8,7 +8,8 @@ GLOBAL_LLM = None
 class LLM:
     def __init__(self, api_key: str = None, base_url: str = None, model: str = None,lang: str = "English"):
         if api_key:
-            self.llm = OpenAI(api_key=api_key, base_url=base_url)
+            # Set reasonable timeout to prevent hanging requests
+            self.llm = OpenAI(api_key=api_key, base_url=base_url, timeout=60.0)
         else:
             self.llm = Llama.from_pretrained(
                 repo_id="Qwen/Qwen2.5-3B-Instruct-GGUF",
@@ -31,7 +32,10 @@ class LLM:
                     logger.error(f"Attempt {attempt + 1} failed: {e}")
                     if attempt == max_retries - 1:
                         raise
-                    sleep(3)
+                    # Exponential backoff: 5s, 10s, 20s
+                    wait_time = 5 * (2 ** attempt)
+                    logger.info(f"Retrying in {wait_time} seconds...")
+                    sleep(wait_time)
             return response.choices[0].message.content
         else:
             response = self.llm.create_chat_completion(messages=messages,temperature=0)

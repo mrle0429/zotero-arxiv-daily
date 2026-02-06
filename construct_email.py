@@ -123,6 +123,7 @@ def render_email(papers:list[ArxivPaper]):
     if len(papers) == 0 :
         return framework.replace('__CONTENT__', get_empty_html())
     
+    failed_affiliations = 0
     for p in tqdm(papers,desc='Rendering Email'):
         rate = get_stars(p.score)
         author_list = [a.name for a in p.authors]
@@ -139,9 +140,13 @@ def render_email(papers:list[ArxivPaper]):
                 affiliations += ', ...'
         else:
             affiliations = 'Unknown Affiliation'
+            failed_affiliations += 1
         parts.append(get_block_html(p.title, authors,rate,p.arxiv_id ,p.tldr, p.pdf_url, p.code_url, affiliations))
         time.sleep(10)
 
+    if failed_affiliations > 0:
+        logger.warning(f"Failed to extract affiliations for {failed_affiliations}/{len(papers)} papers.")
+    
     content = '<br>' + '</br><br>'.join(parts) + '</br>'
     return framework.replace('__CONTENT__', content)
 

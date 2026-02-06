@@ -235,15 +235,20 @@ class ArxivPaper:
             prompt_tokens = prompt_tokens[:4000]  # truncate to 4000 tokens
             prompt = enc.decode(prompt_tokens)
             llm = get_llm()
-            affiliations = llm.generate(
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an assistant who perfectly extracts affiliations of authors from the author information of a paper. You should return a python list of affiliations sorted by the author order, like ['TsingHua University','Peking University']. If an affiliation is consisted of multi-level affiliations, like 'Department of Computer Science, TsingHua University', you should return the top-level affiliation 'TsingHua University' only. Do not contain duplicated affiliations. If there is no affiliation found, you should return an empty list [ ]. You should only return the final list of affiliations, and do not return any intermediate results.",
-                    },
-                    {"role": "user", "content": prompt},
-                ]
-            )
+            
+            try:
+                affiliations = llm.generate(
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are an assistant who perfectly extracts affiliations of authors from the author information of a paper. You should return a python list of affiliations sorted by the author order, like ['TsingHua University','Peking University']. If an affiliation is consisted of multi-level affiliations, like 'Department of Computer Science, TsingHua University', you should return the top-level affiliation 'TsingHua University' only. Do not contain duplicated affiliations. If there is no affiliation found, you should return an empty list [ ]. You should only return the final list of affiliations, and do not return any intermediate results.",
+                        },
+                        {"role": "user", "content": prompt},
+                    ]
+                )
+            except Exception as e:
+                logger.error(f"Failed to generate affiliations for {self.arxiv_id}: {e}")
+                return None
 
             try:
                 affiliations = re.search(r'\[.*?\]', affiliations, flags=re.DOTALL).group(0)
