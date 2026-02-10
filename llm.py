@@ -1,7 +1,8 @@
 from llama_cpp import Llama
-from openai import OpenAI
+from openai import OpenAI, RateLimitError, APITimeoutError, APIConnectionError
 from loguru import logger
 from time import sleep
+import random
 
 GLOBAL_LLM = None
 
@@ -23,20 +24,31 @@ class LLM:
 
     def generate(self, messages: list[dict]) -> str:
         if isinstance(self.llm, OpenAI):
-            max_retries = 3
+            max_retries = 5
             for attempt in range(max_retries):
                 try:
                     response = self.llm.chat.completions.create(messages=messages, temperature=0, model=self.model)
-                    break
-                except Exception as e:
-                    logger.error(f"Attempt {attempt + 1} failed: {e}")
+                    return response.choices[0].message.content
+                except RateLimitError as e:
+                    # Extract Retry-After header if available, otherwise exponential backoff
+                    retry_after = getattr(e.response, 'headers', {}).get('retry-after') if e.response else None
+                    if retry_after:
+                        wait_time = float(retry_after) + random.uniform(1, 5)
+                    else:
+                        wait_time = min(30 * (2 ** attempt) + random.uniform(1, 5), 300)
+                    logger.warning(f"Rate limited (attempt {attempt + 1}/{max_retries}). Waiting {wait_time:.0f}s...")
                     if attempt == max_retries - 1:
                         raise
-                    # Exponential backoff: 5s, 10s, 20s
-                    wait_time = 5 * (2 ** attempt)
-                    logger.info(f"Retrying in {wait_time} seconds...")
                     sleep(wait_time)
-            return response.choices[0].message.content
+                except (APITimeoutError, APIConnectionError) as e:
+                    wait_time = 5 * (2 ** attempt)
+                    logger.warning(f"Connection issue (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {wait_time}s...")
+                    if attempt == max_retries - 1:
+                        raise
+                    sleep(wait_time)
+                except Exception as e:
+                    logger.error(f"Unexpected error: {e}")
+                    raise
         else:
             response = self.llm.create_chat_completion(messages=messages,temperature=0)
             return response["choices"][0]["message"]["content"]

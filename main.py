@@ -29,6 +29,7 @@ from tempfile import mkstemp
 from paper import ArxivPaper
 from llm import set_global_llm
 import feedparser
+import time
 
 def get_zotero_corpus(id:str,key:str) -> list[dict]:
     zot = zotero.Zotero(id, 'user', key)
@@ -60,8 +61,29 @@ def filter_corpus(corpus:list[dict], pattern:str) -> list[dict]:
     return new_corpus
 
 
+def _fetch_arxiv_batch(client, paper_ids, max_retries=3):
+    """Fetch a batch of arXiv papers with retry on 429."""
+    for attempt in range(max_retries):
+        try:
+            # Use low num_retries inside client since we handle 429 ourselves
+            search = arxiv.Search(id_list=paper_ids)
+            return [ArxivPaper(p) for p in client.results(search)]
+        except arxiv.HTTPError as e:
+            if e.status == 429 and attempt < max_retries - 1:
+                wait_time = 30 * (attempt + 1)  # 30s, 60s, 90s
+                logger.warning(f"arXiv rate limit (attempt {attempt + 1}/{max_retries}). Waiting {wait_time}s...")
+                time.sleep(wait_time)
+            elif e.status == 429:
+                logger.error(f"arXiv rate limit: failed after {max_retries} retries. Skipping {len(paper_ids)} papers.")
+                return []
+            else:
+                raise
+    return []
+
+
 def get_arxiv_paper(query:str, debug:bool=False) -> list[ArxivPaper]:
-    client = arxiv.Client(num_retries=10,delay_seconds=10)
+    # Reduce num_retries: library retries 429 without delay, which is wasteful
+    client = arxiv.Client(num_retries=3, delay_seconds=5)
     feed = feedparser.parse(f"https://rss.arxiv.org/atom/{query}")
     if 'Feed error for query' in feed.feed.title:
         raise Exception(f"Invalid ARXIV_QUERY: {query}.")
@@ -69,11 +91,15 @@ def get_arxiv_paper(query:str, debug:bool=False) -> list[ArxivPaper]:
         papers = []
         all_paper_ids = [i.id.removeprefix("oai:arXiv.org:") for i in feed.entries if i.arxiv_announce_type == 'new']
         bar = tqdm(total=len(all_paper_ids),desc="Retrieving Arxiv papers")
-        for i in range(0,len(all_paper_ids),20):
-            search = arxiv.Search(id_list=all_paper_ids[i:i+20])
-            batch = [ArxivPaper(p) for p in client.results(search)]
-            bar.update(len(batch))
+        batch_size = 10
+        for i in range(0, len(all_paper_ids), batch_size):
+            batch_ids = all_paper_ids[i:i+batch_size]
+            batch = _fetch_arxiv_batch(client, batch_ids)
             papers.extend(batch)
+            bar.update(len(batch_ids))
+            # Delay between batches to respect arXiv rate limits
+            if i + batch_size < len(all_paper_ids):
+                time.sleep(5)
         bar.close()
 
     else:
