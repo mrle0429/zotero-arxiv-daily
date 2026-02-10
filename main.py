@@ -31,6 +31,8 @@ from llm import set_global_llm
 import feedparser
 import time
 
+RETRYABLE_ARXIV_STATUS = {429, 500, 502, 503, 504}
+
 def get_zotero_corpus(id:str,key:str) -> list[dict]:
     zot = zotero.Zotero(id, 'user', key)
     collections = zot.everything(zot.collections())
@@ -61,29 +63,35 @@ def filter_corpus(corpus:list[dict], pattern:str) -> list[dict]:
     return new_corpus
 
 
-def _fetch_arxiv_batch(client, paper_ids, max_retries=3):
-    """Fetch a batch of arXiv papers with retry on 429."""
-    for attempt in range(max_retries):
+def _fetch_arxiv_batch(client, paper_ids, max_retries=2):
+    """Fetch one arXiv batch. Retry only transient HTTP errors and fail fast otherwise."""
+    for attempt in range(max_retries + 1):
         try:
-            # Use low num_retries inside client since we handle 429 ourselves
             search = arxiv.Search(id_list=paper_ids)
-            return [ArxivPaper(p) for p in client.results(search)]
+            return [ArxivPaper(p) for p in client.results(search)], True
         except arxiv.HTTPError as e:
-            if e.status == 429 and attempt < max_retries - 1:
-                wait_time = 30 * (attempt + 1)  # 30s, 60s, 90s
-                logger.warning(f"arXiv rate limit (attempt {attempt + 1}/{max_retries}). Waiting {wait_time}s...")
+            status = getattr(e, "status", None)
+            has_retry = attempt < max_retries
+            if status in RETRYABLE_ARXIV_STATUS and has_retry:
+                wait_time = 8 * (attempt + 1)  # 8s, 16s
+                logger.warning(
+                    f"arXiv HTTP {status} (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s..."
+                )
                 time.sleep(wait_time)
-            elif e.status == 429:
-                logger.error(f"arXiv rate limit: failed after {max_retries} retries. Skipping {len(paper_ids)} papers.")
-                return []
-            else:
-                raise
-    return []
+                continue
+            logger.error(
+                f"arXiv batch failed with HTTP {status}. Skip {len(paper_ids)} papers in this batch."
+            )
+            return [], False
+        except Exception as e:
+            logger.error(f"Unexpected arXiv error: {e}. Skip {len(paper_ids)} papers in this batch.")
+            return [], False
+    return [], False
 
 
 def get_arxiv_paper(query:str, debug:bool=False) -> list[ArxivPaper]:
-    # Reduce num_retries: library retries 429 without delay, which is wasteful
-    client = arxiv.Client(num_retries=3, delay_seconds=5)
+    # Use one retry layer only; avoid stacked retries from library + custom code.
+    client = arxiv.Client(num_retries=0, delay_seconds=3)
     feed = feedparser.parse(f"https://rss.arxiv.org/atom/{query}")
     if 'Feed error for query' in feed.feed.title:
         raise Exception(f"Invalid ARXIV_QUERY: {query}.")
@@ -92,14 +100,26 @@ def get_arxiv_paper(query:str, debug:bool=False) -> list[ArxivPaper]:
         all_paper_ids = [i.id.removeprefix("oai:arXiv.org:") for i in feed.entries if i.arxiv_announce_type == 'new']
         bar = tqdm(total=len(all_paper_ids),desc="Retrieving Arxiv papers")
         batch_size = 10
+        consecutive_failed_batches = 0
         for i in range(0, len(all_paper_ids), batch_size):
             batch_ids = all_paper_ids[i:i+batch_size]
-            batch = _fetch_arxiv_batch(client, batch_ids)
+            batch, ok = _fetch_arxiv_batch(client, batch_ids)
             papers.extend(batch)
             bar.update(len(batch_ids))
-            # Delay between batches to respect arXiv rate limits
+
+            if ok:
+                consecutive_failed_batches = 0
+            else:
+                consecutive_failed_batches += 1
+                if consecutive_failed_batches >= 3:
+                    logger.error(
+                        "arXiv API keeps failing on consecutive batches; stop early to avoid wasting workflow time."
+                    )
+                    break
+
+            # arXiv API guidance: keep request rate low.
             if i + batch_size < len(all_paper_ids):
-                time.sleep(5)
+                time.sleep(3)
         bar.close()
 
     else:
@@ -223,4 +243,3 @@ if __name__ == '__main__':
     logger.info("Sending email...")
     send_email(args.sender, args.receiver, args.sender_password, args.smtp_server, args.smtp_port, html)
     logger.success("Email sent successfully! If you don't receive the email, please check the configuration and the junk box.")
-
