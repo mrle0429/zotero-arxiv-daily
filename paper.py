@@ -202,16 +202,25 @@ class ArxivPaper:
         prompt_tokens = prompt_tokens[:4000]  # truncate to 4000 tokens
         prompt = enc.decode(prompt_tokens)
         
-        tldr = llm.generate(
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are an assistant who perfectly summarizes scientific paper, and gives the core idea of the paper to the user.",
-                },
-                {"role": "user", "content": prompt},
-            ]
-        )
-        return tldr
+        try:
+            tldr = llm.generate(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are an assistant who perfectly summarizes scientific paper, and gives the core idea of the paper to the user.",
+                    },
+                    {"role": "user", "content": prompt},
+                ]
+            )
+            return tldr
+        except Exception as e:
+            logger.warning(f"Failed to generate TLDR for {self.arxiv_id}: {e}. Fallback to abstract snippet.")
+            fallback = re.sub(r"\s+", " ", self.summary).strip()
+            if not fallback:
+                return "TLDR unavailable."
+            if len(fallback) > 220:
+                return fallback[:217].rstrip() + "..."
+            return fallback
 
     @cached_property
     def affiliations(self) -> Optional[list[str]]:
