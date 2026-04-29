@@ -15,12 +15,23 @@ llm:
     key: ${oc.env:OPENAI_API_KEY}
     base_url: ${oc.env:OPENAI_API_BASE}
   generation_kwargs:
-    model: gpt-4o-mini
+    model: gemini-3.1-pro-preview
+  language: Chinese
 
 source:
   arxiv:
-    category: ["cs.AI","cs.CV","cs.LG","cs.CL"]
+    category: ["cs.AI","cs.CV","cs.LG","cs.CL","cs.IR"]
+
+reranker:
+  api:
+    key: ${oc.env:OPENAI_API_KEY}
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+    model: gemini-embedding-2-preview
+    batch_size: 100
 
 executor:
   debug: ${oc.env:DEBUG,null}
   source: ['arxiv']
+  reranker: api
+  max_paper_num: 20
+  send_empty: true
