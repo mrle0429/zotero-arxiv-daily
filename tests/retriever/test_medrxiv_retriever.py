@@ -23,5 +23,6 @@ def test_medrxiv_pdf_url(config):
         "abstract": "Abstract.",
         "version": "1",
     })
+    assert paper.url == "https://www.medrxiv.org/content/10.1101/2026.03.01.999v1"
     assert "medrxiv.org" in paper.pdf_url
     assert paper.source == "medrxiv"

@@ -47,6 +47,7 @@ def test_biorxiv_convert_to_paper(config):
     paper = retriever.convert_to_paper(raw)
     assert paper.title == "A biorxiv paper"
     assert paper.source == "biorxiv"
+    assert paper.url == "https://www.biorxiv.org/content/10.1101/2026.03.01.000001v1"
     assert "biorxiv.org" in paper.pdf_url
     assert paper.authors == ["Smith, J.", "Doe, A.", "Lee, K."]
 

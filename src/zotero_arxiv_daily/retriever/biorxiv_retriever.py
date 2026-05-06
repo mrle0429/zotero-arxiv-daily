@@ -48,6 +48,7 @@ class BiorxivRetriever(BaseRetriever):
         title = raw_paper['title']
         authors = [a.strip() for a in raw_paper['authors'].split(';')]
         abstract = raw_paper['abstract']
+        paper_url = f"https://www.{self.server}.org/content/{raw_paper['doi']}v{raw_paper['version']}"
         pdf_url = f"https://www.{self.server}.org/content/{raw_paper['doi']}v{raw_paper['version']}.full.pdf"
         full_text = None # biorxiv forbids scraping its pdf
         return Paper(
@@ -55,7 +56,7 @@ class BiorxivRetriever(BaseRetriever):
             title=title,
             authors=authors,
             abstract=abstract,
-            url=pdf_url,
+            url=paper_url,
             pdf_url=pdf_url,
             full_text=full_text
         )
