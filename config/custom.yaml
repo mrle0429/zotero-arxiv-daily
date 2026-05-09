@@ -15,7 +15,7 @@ llm:
     key: ${oc.env:OPENAI_API_KEY}
     base_url: ${oc.env:OPENAI_API_BASE}
   generation_kwargs:
-    model: gemini-3.1-pro-preview
+    model: mimo-v2.5-pro
   language: Chinese
 
 source:
@@ -23,15 +23,20 @@ source:
     category: ["cs.AI","cs.CV","cs.LG","cs.CL","cs.IR"]
 
 reranker:
+  local:
+    model: jinaai/jina-embeddings-v5-text-nano-retrieval
+    encode_kwargs:
+      task: retrieval
+      prompt_name: document
   api:
     key: ${oc.env:OPENAI_API_KEY}
     base_url: https://generativelanguage.googleapis.com/v1beta/openai/
-    model: gemini-embedding-2-preview
+    model: gemini-embedding-001
     batch_size: 100
 
 executor:
   debug: ${oc.env:DEBUG,null}
   source: ['arxiv']
-  reranker: api
+  reranker: local
   max_paper_num: 20
   send_empty: true
