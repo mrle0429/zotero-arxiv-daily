@@ -17,6 +17,14 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@v7
 
+      - name: Cache Hugging Face models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ runner.os }}-${{ hashFiles('config/base.yaml', 'config/custom.yaml') }}
+          restore-keys: |
+            hf-${{ runner.os }}-
+
       - name: Run script
         env:
           ZOTERO_ID: ${{ secrets.ZOTERO_ID }}
